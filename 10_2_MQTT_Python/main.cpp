@@ -2,6 +2,7 @@
 #include "MQTTNetwork.h"
 #include "MQTTmbed.h"
 #include "MQTTClient.h"
+#include "stm32l475e_iot01_accelero.h"
 
 // GLOBAL VARIABLES
 WiFiInterface *wifi;
@@ -13,6 +14,30 @@ volatile bool closed = false;
 
 // const char* host = "172.20.10.10";
 const char* topic = "Mbed";
+
+EventQueue queue(32 * EVENTS_EVENT_SIZE);
+Thread t;
+
+int16_t pDataXYZ[3] = {0};
+int idR[32] = {0};
+int indexR = 0;
+
+void record(void) {
+   BSP_ACCELERO_AccGetXYZ(pDataXYZ);
+   printf("%d, %d, %d\n", pDataXYZ[0], pDataXYZ[1], pDataXYZ[2]);
+}
+
+void startRecord(void) {
+//    printf("---start---\n");
+   idR[indexR++] = queue.call_every(1ms, record);
+   indexR = indexR % 32;
+}
+
+void stopRecord(void) {
+//    printf("---stop---\n");
+   for (auto &i : idR)
+      queue.cancel(i);
+}
 
 Thread mqtt_thread(osPriorityHigh);
 EventQueue mqtt_queue;
@@ -50,6 +75,9 @@ void close_mqtt() {
 }
 
 int main() {
+
+    BSP_ACCELERO_Init();
+    t.start(callback(&queue, &EventQueue::dispatch_forever));
 
     wifi = WiFiInterface::get_default_instance();
     if (!wifi) {
@@ -102,14 +130,16 @@ int main() {
     btn2.rise(mqtt_queue.event(&publish_message, &client));
     //btn3.rise(&close_mqtt);
 
-    int num = 0;
-    while (num != 5) {
-            client.yield(100);
-            ++num;
-    }
+//     int num = 0;
+//     while (num != 5) {
+//             client.yield(100);
+//             ++num;
+//     }
 
     while (1) {
             if (closed) break;
+            record();
+        //     client.yield(500);
             ThisThread::sleep_for(500ms);
     }
 
